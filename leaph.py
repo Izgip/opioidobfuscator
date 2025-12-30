@@ -389,13 +389,48 @@ return execute_bytecode
         # Build final loader
         loader = f'''
 (function()
-    -- Anti-debugging
-    if type(debug) == "table" and debug.getinfo then
-        for i = 1, math.random(100, 1000) do
-            if i % 13 == 0 then coroutine.yield() end
+    -- Passive debug environment poisoning (doesn't stop execution)
+    local function poison_debug_env()
+        if type(debug) == "table" and debug.getinfo then
+            -- Store original for our own use
+            local _real_getinfo = debug.getinfo
+            
+            -- Create poisoned wrapper
+            local poisoned_calls = 0
+            debug.getinfo = function(...)
+                poisoned_calls = poisoned_calls + 1
+                local result = _real_getinfo(...)
+                
+                -- Every 3rd call gets poisoned data
+                if poisoned_calls % 3 == 0 and result then
+                    -- Return slightly wrong information
+                    if result.linedefined then
+                        result.linedefined = result.linedefined + 2
+                    end
+                    if result.currentline then
+                        result.currentline = result.currentline - 1
+                    end
+                end
+                return result
+            end
+            
+            -- Poison coroutine tracking
+            if debug.getlocal then
+                local _real_getlocal = debug.getlocal
+                debug.getlocal = function(...)
+                    local name, value = _real_getlocal(...)
+                    -- Occasionally return wrong variable names
+                    if name and math.random() > 0.8 then
+                        name = "_obf_" .. name
+                    end
+                    return
+                end
+            end
         end
-        return
     end
+    
+    -- Initialize poisoning
+    poison_debug_env()
     
     -- Custom base decoder
     local alphabet = "{alphabet}"
